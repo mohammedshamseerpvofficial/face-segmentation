@@ -26,7 +26,10 @@ Here's a sneak peek of how the app works:
 
 ## 🎥 Demo Video
 Watch a quick walkthrough of how the app works:  
-[![Demo Video](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://mohammedshamseerpvofficial.github.io/face-segmentation/face-imagees/video1.mp4)
+<video width="100%" controls>
+  <source src="https://mohammedshamseerpvofficial.github.io/face-segmentation/face-imagees/video1.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ## 🔗 Links
 - Website: [Your Website URL](https://www.yourwebsite.com)
