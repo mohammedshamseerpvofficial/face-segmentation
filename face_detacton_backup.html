@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face Detection and PDF Export</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <style>
+    /* Glass effect and other styles */
+    body {
+      background: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 1)), url('https://source.unsplash.com/1600x900/?nature') center/cover;
+      color: white;
+      font-family: 'Arial', sans-serif;
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 15px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    #upload-area {
+      width: 100%;
+      height: 250px;
+      border: 2px dashed #ffffff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+    }
+
+    #uploadedImage {
+      max-width: 100%;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    #faces-table {
+      margin-top: 20px;
+      width: 100%;
+    }
+
+    .face-image {
+      width: 100px;
+      height: 100px;
+      object-fit: cover;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    /* Modal styling */
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+    }
+
+    .modal-content {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      border-radius: 20px;
+      max-width: 80%;
+      max-height: 80%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      backdrop-filter: blur(10px);
+    }
+
+    /* Left side image */
+    .modal-image {
+      width: 45%;
+      max-width: 300px;
+      height: auto;
+      border-radius: 10px;
+    }
+
+    /* Right side text */
+    .modal-details {
+      width: 50%;
+      color: white;
+      margin-left: 20px;
+    }
+
+    .modal-details p {
+      margin: 5px 0;
+    }
+
+    /* Close button */
+    .close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      font-size: 30px;
+      color: white;
+      cursor: pointer;
+      background: rgba(255, 0, 0, 0.7);
+      border-radius: 50%;
+      padding: 10px;
+    }
+
+  </style>
+</head>
+<body class="bg-gray-900">
+
+  <div class="container mx-auto p-6">
+    <div id="upload-area" class="glass mb-6">
+      <div class="text-center text-gray-300">
+        <p class="font-semibold">Drag & Drop Images or Click to Upload</p>
+        <input type="file" id="imageUpload" class="hidden" accept="image/*" onchange="handleImageUpload(event)" multiple>
+        <button class="bg-blue-500 text-white p-2 rounded" onclick="document.getElementById('imageUpload').click();">Upload Images</button>
+      </div>
+    </div>
+
+   
+
+    <div class="uploaded-image-container gap-4 mb-6">
+        <!-- Heading that should be visible after image upload -->
+        <h2 id="uploadText" class="hidden">Upload Image</h2>
+        <img id="uploadedImage" class="hidden glass" />
+      </div>
+      
+      <!-- Text for when a face is detected -->
+      <h2 id="faceDetectedText" class="hidden">Face detected</h2>
+      
+      <!-- Canvas for face detection -->
+      <canvas id="canvas" class="hidden md:w-1/2 rounded-lg border-4 border-gray-300 shadow-lg"></canvas>
+<br>
+
+    <div id="faces-table-container" class="glass p-6">
+      <h3 class="text-xl font-semibold text-center mb-4">Detected Faces</h3>
+      <table id="faces-table" class="min-w-full table-auto mt-4">
+        <thead class="bg-gray-700 text-white">
+          <tr>
+            <th class="px-4 py-2 border">Face #</th>
+            <th class="px-4 py-2 border">Bounding Box (x, y, width, height)</th>
+            <th class="px-4 py-2 border">Facial Expression</th>
+            <th class="px-4 py-2 border">Cropped Face (Full)</th>
+            <th class="px-4 py-2 border">Detected Face (No Head)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Table rows will be dynamically generated here -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="text-center mt-4">
+      <button onclick="downloadJSONData()" class="bg-green-500 text-white p-2 rounded mr-4">Download JSON Data</button>
+      <button onclick="downloadPDFData()" class="bg-green-500 text-white p-2 rounded">Download PDF Data</button>
+    </div>
+  </div>
+
+  <div id="faceModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal()">&times;</span>
+      <img id="modalFaceImage" class="modal-image" />
+      <div id="modalFaceDetails" class="modal-details"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentImage = null;
+    let allFaceData = [];
+
+    window.onload = async function() {
+      await loadModels();
+
+      const uploadArea = document.getElementById('upload-area');
+      uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('bg-gray-300');
+      });
+
+      uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('bg-gray-300');
+      });
+
+      uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('bg-gray-300');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          const imgElement = document.getElementById("uploadedImage");
+          const file = files[0];
+          if (currentImage) {
+            const replace = confirm("Do you want to replace the current image?");
+            if (!replace) return;
+          }
+          imgElement.src = URL.createObjectURL(file);
+          imgElement.onload = () => detectFaces(imgElement);
+          imgElement.classList.remove("hidden");
+        }
+      });
+    };
+
+    async function loadModels() {
+      await faceapi.nets.ssdMobilenetv1.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
+      await faceapi.nets.faceExpressionNet.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models/');
+    }
+
+  // Handle image upload
+  
+  // Handle image upload
+  function handleImageUpload(event) {
+    const files = event.target.files;
+
+    // Check if a file is selected
+    if (files.length > 0) {
+      const file = files[0];
+      const imgElement = document.getElementById("uploadedImage");
+      const uploadText = document.getElementById("uploadText"); // Get the "Upload Image" text
+      const faceDetectedText = document.getElementById("faceDetectedText");
+      const canvasElement = document.getElementById("canvas"); // Get the canvas for face detection
+
+      // If there's already a current image, ask if they want to replace it
+      if (currentImage) {
+        const replace = confirm("Do you want to replace the current image?");
+        if (!replace) return;
+      }
+
+      // Set the new image source and trigger the face detection
+      imgElement.src = URL.createObjectURL(file);
+      imgElement.onload = () => {
+        detectFaces(imgElement);
+      };
+
+      // Remove the "hidden" class to show the uploaded image and text
+      imgElement.classList.remove("hidden");
+      
+      // Show the "Upload Image" text
+      uploadText.classList.remove("hidden");
+
+      // Hide face detection message and canvas initially
+      faceDetectedText.classList.add("hidden");
+      canvasElement.classList.add("hidden");
+
+      // Update the current image reference to the newly uploaded image
+      currentImage = imgElement;
+    }
+  }
+
+    async function detectFaces(imageElement) {
+      const canvas = faceapi.createCanvasFromMedia(imageElement);
+      document.getElementById("canvas").replaceWith(canvas);
+
+      const detections = await faceapi.detectAllFaces(imageElement)
+        .withFaceLandmarks()
+        .withFaceExpressions();
+
+      if (detections.length > 0) {
+        faceapi.draw.drawDetections(canvas, detections);
+        faceapi.draw.drawFaceLandmarks(canvas, detections);
+
+        showFaceDetails(detections, imageElement);
+      }
+    }
+
+    function showFaceDetails(detections, imageElement) {
+      const facesTableBody = document.querySelector("#faces-table tbody");
+      facesTableBody.innerHTML = '';
+
+      detections.forEach((detection, index) => {
+        const faceBox = detection.detection.box;
+        const dominantExpression = Object.keys(detection.expressions).reduce((a, b) => detection.expressions[a] > detection.expressions[b] ? a : b);
+
+        const row = facesTableBody.insertRow();
+        const cell1 = row.insertCell(0);
+        cell1.textContent = index + 1;
+
+        const cell2 = row.insertCell(1);
+        cell2.textContent = `x: ${Math.round(faceBox.x)}, y: ${Math.round(faceBox.y)}, width: ${Math.round(faceBox.width)}, height: ${Math.round(faceBox.height)}`;
+
+        const cell3 = row.insertCell(2);
+        cell3.textContent = dominantExpression;
+
+        const cell4 = row.insertCell(3);
+        const croppedFace = document.createElement("img");
+        cropAndShowFace(imageElement, faceBox, croppedFace);
+        croppedFace.classList.add("face-image");
+        cell4.appendChild(croppedFace);
+
+        const cell5 = row.insertCell(4);
+        const detectedFace = document.createElement("img");
+        cropDetectedFace(imageElement, faceBox, detectedFace);
+        detectedFace.classList.add("face-image");
+        cell5.appendChild(detectedFace);
+
+        allFaceData.push({
+          faceNumber: index + 1,
+          boundingBox: faceBox,
+          expression: dominantExpression,
+          croppedFullFace: croppedFace.src,
+          detectedFace: detectedFace.src,
+        });
+
+        croppedFace.addEventListener('click', () => openModal(croppedFace.src, allFaceData[index]));
+        detectedFace.addEventListener('click', () => openModal(detectedFace.src, allFaceData[index]));
+      });
+    }
+
+    function cropAndShowFace(imageElement, box, croppedFaceElement) {
+      const offscreenCanvas = document.createElement("canvas");
+      const context = offscreenCanvas.getContext("2d");
+
+      const padding = 20;
+      const width = box.width + padding * 2;
+      const height = box.height + padding * 2;
+      const x = box.x - padding;
+      const y = box.y - padding;
+
+      offscreenCanvas.width = width;
+      offscreenCanvas.height = height;
+
+      context.drawImage(imageElement, x, y, width, height, 0, 0, width, height);
+      croppedFaceElement.src = offscreenCanvas.toDataURL();
+    }
+
+    function cropDetectedFace(imageElement, box, detectedFaceElement) {
+      const offscreenCanvas = document.createElement("canvas");
+      const context = offscreenCanvas.getContext("2d");
+
+      const padding = 5;
+      const width = box.width + padding * 2;
+      const height = box.height + padding * 2;
+      const x = box.x - padding;
+      const y = box.y - padding;
+
+      offscreenCanvas.width = width;
+      offscreenCanvas.height = height;
+
+      context.drawImage(imageElement, x, y, width, height, 0, 0, width, height);
+      detectedFaceElement.src = offscreenCanvas.toDataURL();
+    }
+
+    function openModal(faceImageSrc, faceData) {
+      const modal = document.getElementById("faceModal");
+      const modalImage = document.getElementById("modalFaceImage");
+      const modalDetails = document.getElementById("modalFaceDetails");
+
+      modal.style.display = "flex";
+      modalImage.src = faceImageSrc;
+
+      modalDetails.innerHTML = `
+        <p><strong>Face #${faceData.faceNumber}</strong></p>
+        <p><strong>Bounding Box:</strong> x: ${Math.round(faceData.boundingBox.x)}, y: ${Math.round(faceData.boundingBox.y)}, width: ${Math.round(faceData.boundingBox.width)}, height: ${Math.round(faceData.boundingBox.height)}</p>
+        <p><strong>Expression:</strong> ${faceData.expression}</p>
+      `;
+    }
+
+    function closeModal() {
+      const modal = document.getElementById("faceModal");
+      modal.style.display = "none";
+    }
+
+    function downloadJSONData() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allFaceData, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "face_data.json");
+      downloadAnchor.click();
+    }
+
+    function downloadPDFData() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      let y = 20;
+
+      doc.setFontSize(12);
+      doc.text("Detected Faces", 20, y);
+
+      allFaceData.forEach((data, index) => {
+        y += 10;
+        doc.text(`Face #${data.faceNumber}`, 20, y);
+        doc.text(`Bounding Box: x: ${data.boundingBox.x}, y: ${data.boundingBox.y}, width: ${data.boundingBox.width}, height: ${data.boundingBox.height}`, 20, y + 10);
+        doc.text(`Expression: ${data.expression}`, 20, y + 20);
+
+        const img = new Image();
+        img.src = data.croppedFullFace;
+        img.onload = function() {
+          doc.addImage(img, 'JPEG', 20, y + 30, 50, 50);
+          doc.addPage();
+        };
+
+        const detectedImg = new Image();
+        detectedImg.src = data.detectedFace;
+        detectedImg.onload = function() {
+          doc.addImage(detectedImg, 'JPEG', 20, y + 90, 50, 50);
+          doc.addPage();
+        };
+      });
+
+      doc.save("face_data.pdf");
+    }
+  </script>
+</body>
+</html>
